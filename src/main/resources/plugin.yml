@@ -1,0 +1,16 @@
+name: NordTab
+version: '1.0.0'
+main: com.nordfjell.nordtab.NordTabPlugin
+api-version: '26.2'
+author: Nord Fjell
+description: Lightweight player list header and footer for Nord Fjell.
+
+commands:
+  nordtab:
+    description: Reload NordTab configuration.
+    usage: /nordtab reload
+    permission: nordtab.admin
+
+permissions:
+  nordtab.admin:
+    default: op

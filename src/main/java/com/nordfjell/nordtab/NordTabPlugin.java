@@ -11,75 +11,109 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.event.player.PlayerQuitEvent;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class NordTabPlugin extends JavaPlugin implements Listener {
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
-    private BukkitTask updateTask;
-    private String headerTemplate;
-    private String footerTemplate;
-    private boolean plainPlayerNames;
+    private final Map<UUID, ScheduledTask> updateTasks = new ConcurrentHashMap<>();
+    private final Set<UUID> ownedNames = ConcurrentHashMap.newKeySet();
+    private volatile TabSettings settings;
 
     @Override
     public void onEnable() {
         saveDefaultConfig();
         getServer().getPluginManager().registerEvents(this, this);
-        reloadSettings();
+        loadSettings();
+        Bukkit.getGlobalRegionScheduler().execute(this, this::restartUpdates);
         getLogger().info("NordTab enabled without packet or placeholder dependencies.");
     }
 
     @Override
     public void onDisable() {
-        if (updateTask != null) updateTask.cancel();
-        for (Player player : Bukkit.getOnlinePlayers()) {
-            player.sendPlayerListHeaderAndFooter(Component.empty(), Component.empty());
-            if (plainPlayerNames) player.playerListName(null);
-        }
+        updateTasks.values().forEach(ScheduledTask::cancel);
+        updateTasks.clear();
+        ownedNames.clear();
+        // The plugin is already disabled here: scheduling entity cleanup is forbidden.
+        // Do not access players from the shutdown/global thread on Folia.
     }
 
-    private void reloadSettings() {
+    private void loadSettings() {
         reloadConfig();
-        boolean previouslyPlain = plainPlayerNames;
-        headerTemplate = getConfig().getString("header", "<dark_green><bold>Minecraft server</bold></dark_green>");
-        footerTemplate = getConfig().getString("footer", "<gray><tps> tps - <online> players online - <ping> ping</gray>");
-        plainPlayerNames = getConfig().getBoolean("plain-player-names", true);
-        if (previouslyPlain && !plainPlayerNames) {
-            for (Player player : Bukkit.getOnlinePlayers()) player.playerListName(null);
-        }
-        long interval = Math.max(20L, getConfig().getLong("update-interval-ticks", 40L));
-        if (updateTask != null) updateTask.cancel();
-        updateTask = Bukkit.getScheduler().runTaskTimer(this, this::updateAll, 1L, interval);
+        settings = TabSettings.from(getConfig());
     }
 
-    private void updateAll() {
-        for (Player player : Bukkit.getOnlinePlayers()) update(player);
+    private void restartUpdates() {
+        updateTasks.values().forEach(ScheduledTask::cancel);
+        updateTasks.clear();
+        for (Player player : Bukkit.getOnlinePlayers()) startUpdates(player);
+    }
+
+    private void startUpdates(Player player) {
+        UUID id = player.getUniqueId();
+        ScheduledTask previous = updateTasks.remove(id);
+        if (previous != null) previous.cancel();
+        ScheduledTask task = player.getScheduler().runAtFixedRate(this,
+                ignored -> update(player), () -> {
+                    updateTasks.remove(id);
+                    ownedNames.remove(id);
+                }, 1L, settings.interval());
+        if (task != null) updateTasks.put(id, task);
     }
 
     private void update(Player viewer) {
+        TabSettings current = settings;
+        // On Folia getTPS() reports the current region; on Paper it reports server TPS.
         double currentTps = Math.min(20.0D, Bukkit.getTPS()[0]);
-        Component header = miniMessage.deserialize(headerTemplate);
-        Component footer = miniMessage.deserialize(footerTemplate,
+        Component header = miniMessage.deserialize(current.header());
+        Component footer = miniMessage.deserialize(current.footer(),
                 Placeholder.unparsed("tps", String.format(Locale.ROOT, "%.1f", currentTps)),
                 Placeholder.unparsed("online", Integer.toString(Bukkit.getOnlinePlayers().size())),
                 Placeholder.unparsed("ping", Integer.toString(Math.max(0, viewer.getPing()))));
         viewer.sendPlayerListHeaderAndFooter(header, footer);
-        if (plainPlayerNames) viewer.playerListName(Component.text(viewer.getName()));
+        if (current.plainPlayerNames()) {
+            viewer.playerListName(Component.text(viewer.getName()));
+            ownedNames.add(viewer.getUniqueId());
+        } else if (ownedNames.remove(viewer.getUniqueId())) {
+            viewer.playerListName(null);
+        }
     }
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
-        Bukkit.getScheduler().runTask(this, () -> update(event.getPlayer()));
+        Player player = event.getPlayer();
+        Bukkit.getGlobalRegionScheduler().execute(this, () -> startUpdates(player));
+    }
+
+    @EventHandler
+    public void onQuit(PlayerQuitEvent event) {
+        UUID id = event.getPlayer().getUniqueId();
+        ScheduledTask task = updateTasks.remove(id);
+        if (task != null) task.cancel();
+        ownedNames.remove(id);
     }
 
     @Override
     public boolean onCommand(@NotNull CommandSender sender, @NotNull Command command,
                              @NotNull String label, @NotNull String[] args) {
         if (args.length == 1 && args[0].equalsIgnoreCase("reload")) {
-            reloadSettings();
-            sender.sendMessage(Component.text("NordTab configuration reloaded."));
+            Bukkit.getGlobalRegionScheduler().execute(this, () -> {
+                loadSettings();
+                restartUpdates();
+                if (sender instanceof Player player) {
+                    player.getScheduler().execute(this,
+                            () -> player.sendMessage(Component.text("NordTab configuration reloaded.")), null, 1L);
+                } else {
+                    sender.sendMessage(Component.text("NordTab configuration reloaded."));
+                }
+            });
         } else {
             sender.sendMessage(Component.text("Usage: /nordtab reload"));
         }

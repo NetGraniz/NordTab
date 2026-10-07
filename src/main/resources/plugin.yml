@@ -2,6 +2,7 @@ name: NordTab
 version: '${project.version}'
 main: com.nordfjell.nordtab.NordTabPlugin
 api-version: '26.2'
+folia-supported: true
 author: Nord Fjell
 description: Lightweight player list header and footer for Nord Fjell.
 

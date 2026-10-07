@@ -1,0 +1,6 @@
+name: NordTabFoliaProbe
+version: '1.0'
+main: com.nordfjell.nordtab.probe.NordTabFoliaProbe
+api-version: '26.2'
+folia-supported: true
+depend: [NordTab]

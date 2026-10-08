@@ -1,16 +1,29 @@
 # NordTab
 
-> Release build and installation requirements: see [BUILDING.md](BUILDING.md).
-> Older local paths below describe historical test fixtures, not the release build.
+TAB header and footer for Paper 26.2 and Folia 26.2. One JAR supports both platforms on Java 25.
 
-Lightweight Paper/Folia player list for Nord Fjell. It uses only the Paper API and does not require TAB, PlaceholderAPI or PacketEvents.
+The default header reads NORD FJELL. The footer shows TPS, online players and the viewer's ping. Edit the installed configuration to change the text.
 
-The header shows `NORD FJELL`. The footer shows current TPS, online count and the viewing player's ping. Minecraft clients control the player grid and connection bars, so the plugin deliberately does not use fragile packet tricks to imitate the exact 2b2t column layout.
+## Behavior
 
-The same JAR supports both Paper and Folia; development stays on `main`.
-Updates use each player's entity scheduler, and reloads publish immutable settings.
-On Folia, `<tps>` describes the viewer's current region, not a single server-wide TPS.
-Use a server restart for installation/removal; hot plugin unloading is not supported.
+NordTab uses the Paper API. Player updates run on each player's entity scheduler, and reload publishes immutable settings.
 
-Build with `./build.ps1`. Install `target/NordTab-1.1.0.jar` while the server is stopped.
-Existing `plugins/NordTab/config.yml` remains compatible; do not overwrite live configuration with defaults.
+On Folia, `<tps>` belongs to the viewer's region, not a single server-wide tick loop. The Minecraft client controls the player-list grid and ping bars; NordTab does not control that layout.
+
+## Permissions
+
+| Permission | Allows | Default |
+| --- | --- | --- |
+| `nordtab.admin` | `/nordtab reload` | Operators |
+
+Players do not need a NordTab permission to see the header and footer.
+
+## Configuration and installation
+
+Keep `plugins/NordTab/config.yml` when updating. Run `/nordtab reload` after editing its text.
+
+Use a stopped-server installation or removal, not hot loading or unloading. Both platforms use the release from `main`.
+
+## Build
+
+Run `./build.ps1` with Maven 3.9+ and JDK 25. The output is `target/NordTab-1.1.0.jar`. See [BUILDING.md](BUILDING.md).
